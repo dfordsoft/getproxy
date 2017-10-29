@@ -46,8 +46,6 @@ type ProxyItem struct {
 }
 
 func validate(pi ProxyItem) bool {
-	wg.Add(1)
-	sema.Acquire()
 	defer func() {
 		sema.Release()
 		wg.Done()
@@ -130,6 +128,8 @@ doRequest:
 	for scanner.Scan() {
 		line := scanner.Text()
 		if err := json.Unmarshal([]byte(line), &pi); err == nil {
+			sema.Acquire()
+			wg.Add(1)
 			go validate(pi)
 		} else {
 			fmt.Printf("%s, %v\n", line, err)
