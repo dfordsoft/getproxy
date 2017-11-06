@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -10,31 +11,15 @@ import (
 	"net/url"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/semaphore"
 )
-
-type Semaphore struct {
-	c chan int
-}
-
-func NewSemaphore(n int) *Semaphore {
-	s := &Semaphore{
-		c: make(chan int, n),
-	}
-	return s
-}
-
-func (s *Semaphore) Acquire() {
-	s.c <- 0
-}
-
-func (s *Semaphore) Release() {
-	<-s.c
-}
 
 var (
 	client    *http.Client
 	proxyList = `https://raw.githubusercontent.com/fate0/proxylist/master/proxy.list`
-	sema      = NewSemaphore(20)
+	sema      = semaphore.NewWeighted(5)
+	ctx       = context.TODO()
 	wg        sync.WaitGroup
 )
 
@@ -47,7 +32,7 @@ type ProxyItem struct {
 
 func validate(pi ProxyItem) bool {
 	defer func() {
-		sema.Release()
+		sema.Release(1)
 		wg.Done()
 	}()
 	proxyString := fmt.Sprintf("%s://%s:%s", pi.Type, pi.Host, pi.Port)
@@ -78,7 +63,7 @@ func validate(pi ProxyItem) bool {
 		return false
 	}
 
-	if len(content) > 100 {
+	if len(content) > 200 {
 		fmt.Println("too long response is treated as unexpected response")
 		return false
 	}
@@ -128,7 +113,7 @@ doRequest:
 	for scanner.Scan() {
 		line := scanner.Text()
 		if err := json.Unmarshal([]byte(line), &pi); err == nil {
-			sema.Acquire()
+			sema.Acquire(ctx, 1)
 			wg.Add(1)
 			go validate(pi)
 		} else {
